@@ -107,7 +107,11 @@ app.post("/api/pay", verifyUser, async (req, res) => {
 
     res.json(response.data);
   } catch (err) {
-    console.error("PAY ERROR:", err.response?.data || err.message);
+    console.error("PAY ERROR FULL:", {
+      message: err.message,
+      data: err.response?.data,
+      status: err.response?.status
+    });
     res.status(500).json({ error: "Payment failed" });
   }
 });
