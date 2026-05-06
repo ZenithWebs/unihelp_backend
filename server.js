@@ -79,21 +79,21 @@ app.post("/api/pay", verifyUser, async (req, res) => {
     const tutorShare = Math.round(amount * 0.7);
     const platformShare = Math.round(amount * 0.3);
 
-    const payload = {
-      tx_ref: "tx_" + Date.now(),
-      amount,
-      currency: "NGN",
-      redirect_url: "https://unihelp-flax.vercel.app/tutorialmarketplace",
-      customer: { email },
-      meta: {
-        userId: req.user.uid,
-        tutorId,
-        tutorialId,
-        amount,
-        tutorShare,
-        platformShare
-      }
-    };
+   const payload = {
+  tx_ref: "tx_" + Date.now(),
+  amount,
+  currency: "NGN",
+  redirect_url: "https://unihelp-flax.vercel.app/tutorialmarketplace",
+  customer: { email },
+  meta: {
+    userId: req.user.uid,
+    tutorId,
+    tutorialId,
+    amount,
+    tutorShare,
+    platformShare
+  }
+};
 
     const response = await axios.post(
       "https://api.flutterwave.com/v3/payments",
@@ -107,7 +107,7 @@ app.post("/api/pay", verifyUser, async (req, res) => {
 
     res.json(response.data);
   } catch (err) {
-    console.error("PAY ERROR:", err.message);
+    console.error("PAY ERROR:", err.response?.data || err.message);
     res.status(500).json({ error: "Payment failed" });
   }
 });
