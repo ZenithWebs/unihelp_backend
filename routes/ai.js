@@ -1,10 +1,11 @@
 import express from "express";
 import admin from "firebase-admin";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import "dotenv/config";
 
 const router = express.Router();
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const COST_PER_MESSAGE = 18;
 
@@ -43,7 +44,7 @@ router.post("/chat", async (req, res) => {
     const { messages, context } = req.body;
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
     });
 
     const prompt = `

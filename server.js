@@ -6,14 +6,16 @@ import rateLimit from "express-rate-limit";
 import admin from "firebase-admin";
 import crypto from "crypto";
 import aiRoutes from "./routes/ai.js";
-
+import { db } from "./firebase.js";
 dotenv.config();
-
+import admin from "firebase-admin";
+import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
 // ============================
 // 🔥 FIREBASE ADMIN INIT
 // ============================
-import { db } from "./firebase.js";
-
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 const app = express();
 app.use("/api/ai", aiRoutes);
 // ============================
@@ -23,11 +25,7 @@ app.use(cors({
   origin: "https://unihelp-flax.vercel.app"
 }));
 
-app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf.toString();
-  }
-}));
+app.use(express.json());
 
 // ============================
 // 🚦 RATE LIMITING
@@ -123,9 +121,10 @@ app.post("/api/pay", verifyUser, async (req, res) => {
 app.post("/api/payment/webhook", async (req, res) => {
   try {
     const secretHash = process.env.FLW_SECRET_HASH;
-    const signature = req.headers["verif-hash"];
+const signature = req.headers["verif-hash"];
 
     if (!signature || signature !== secretHash) {
+      console.log("Invalid webhook signature");
       return res.sendStatus(401);
     }
 
@@ -226,13 +225,15 @@ app.post("/api/withdraw", verifyUser, async (req, res) => {
 
     const withdrawSnap = await db.collection("withdrawals")
       .where("tutorId", "==", tutorId)
-      .where("status", "==", "paid")
+      .where("status", "in", ["pending", "paid"])
       .get();
 
     let withdrawn = 0;
-    withdrawSnap.forEach(d => withdrawn += d.data().amount || 0);
+    withdrawSnap.forEach(d => {
+      withdrawn += d.data().amount || 0;
+    });
 
-    const available = earned - withdrawn;
+    const available = Math.max(0, earned - withdrawn);
 
     if (amount > available) {
       return res.status(400).json({ error: "Insufficient balance" });
@@ -242,6 +243,8 @@ app.post("/api/withdraw", verifyUser, async (req, res) => {
       tutorId,
       amount,
       status: "pending",
+      bankCode: req.body.bankCode,
+      accountNumber: req.body.accountNumber,
       createdAt: new Date()
     });
 
@@ -250,6 +253,7 @@ app.post("/api/withdraw", verifyUser, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // ============================
 // 🏦 ADMIN PAYOUT
@@ -317,7 +321,7 @@ app.get("/api/admin/stats", verifyAdmin, async (req, res) => {
     res.json({
       revenue,
       withdrawn,
-      profit: revenue - withdrawn
+      profit: Math.max(0, revenue - withdrawn)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
