@@ -5,6 +5,7 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import admin from "firebase-admin";
 import crypto from "crypto";
+import aiRoutes from "./routes/ai.js";
 
 dotenv.config();
 
@@ -14,7 +15,7 @@ dotenv.config();
 import { db } from "./firebase.js";
 
 const app = express();
-
+app.use("/api/ai", aiRoutes);
 // ============================
 // 🛡 SECURITY MIDDLEWARE
 // ============================
