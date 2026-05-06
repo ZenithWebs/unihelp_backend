@@ -7,9 +7,9 @@ import admin from "firebase-admin";
 import crypto from "crypto";
 import aiRoutes from "./routes/ai.js";
 import { db } from "./firebase.js";
-dotenv.config();
-import admin from "firebase-admin";
 import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+
+dotenv.config();
 // ============================
 // 🔥 FIREBASE ADMIN INIT
 // ============================
