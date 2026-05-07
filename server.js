@@ -10,9 +10,6 @@ import { db } from "./firebase.js";
 import nodemailer from "nodemailer";
 
 dotenv.config();
-// ============================
-// 🔥 FIREBASE ADMIN INIT
-// ============================
 
 const app = express();
 app.use("/api/ai", aiRoutes);
