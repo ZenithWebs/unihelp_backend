@@ -20,8 +20,6 @@ app.use(cors({
   origin: "https://unihelp-flax.vercel.app"
 }));
 
-app.use(express.json());
-
 
 
 // ================= EMAIL TRANSPORTER =================
@@ -182,7 +180,7 @@ app.post("/api/pay", verifyUser, async (req, res) => {
   tx_ref: "tx_" + Date.now(),
   amount,
   currency: "NGN",
-  redirect_url: "https://unihelp-flax.vercel.app/tutorialmarketplace",
+  redirect_url: "https://unihelp-flax.vercel.app/tutorialmarketplace?status=successful",
   customer: { email },
   meta: {
     userId: req.user.uid,
@@ -218,95 +216,130 @@ app.post("/api/pay", verifyUser, async (req, res) => {
 // ============================
 // 🔔 WEBHOOK (IDEMPOTENT + SAFE)
 // ============================
-app.post("/api/payment/webhook", async (req, res) => {
-  try {
-    const secretHash = process.env.FLW_SECRET_HASH;
-const signature = req.headers["verif-hash"];
 
-    if (!signature || signature !== secretHash) {
-      console.log("Invalid webhook signature");
-      return res.sendStatus(401);
-    }
+app.post(
+  "/api/payment/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const secretHash = process.env.FLW_SECRET_HASH;
+      const signature = req.headers["verif-hash"];
 
-    const payload = req.body;
-
-    if (payload.event !== "charge.completed") return res.sendStatus(200);
-
-    const data = payload.data;
-    if (data.status !== "successful") return res.sendStatus(200);
-
-    const txRef = data.tx_ref;
-    const transactionId = data.id;
-
-    // ============================
-    // 🔒 IDEMPOTENCY CHECK
-    // ============================
-    const txRefDoc = db.collection("transactions").doc(txRef);
-    const exists = await txRefDoc.get();
-
-    if (exists.exists) return res.sendStatus(200);
-
-    // verify with Flutterwave
-    const verifyRes = await axios.get(
-      `https://api.flutterwave.com/v3/transactions/${transactionId}/verify`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`
-        }
+      // ✅ verify signature
+      if (!signature || signature !== secretHash) {
+        console.log("❌ Invalid webhook signature");
+        return res.sendStatus(401);
       }
-    );
 
-    const transaction = verifyRes.data.data;
-    if (transaction.status !== "successful") return res.sendStatus(400);
+      // ✅ parse raw body safely
+      const payload = JSON.parse(req.body.toString());
 
-    const meta = transaction.meta;
-    if (!meta?.userId || !meta?.tutorialId) return res.sendStatus(400);
+      console.log("🔥 WEBHOOK RECEIVED:", payload);
 
-    // ============================
-    // 💰 WRITE PURCHASE
-    // ============================
-    const batch = db.batch();
+      // only completed charges
+      if (payload.event !== "charge.completed") {
+        return res.sendStatus(200);
+      }
 
-    const purchaseRef = db.collection("purchases").doc();
-    const earningsRef = db.collection("tutorEarnings").doc();
-    const revenueRef = db.collection("adminRevenue").doc();
+      const data = payload.data;
 
-    batch.set(purchaseRef, {
-      userId: meta.userId,
-      tutorId: meta.tutorId,
-      tutorialId: meta.tutorialId,
-      amount: meta.amount,
-      txRef,
-      createdAt: new Date()
-    });
+      if (data.status !== "successful") {
+        return res.sendStatus(200);
+      }
 
-    batch.set(earningsRef, {
-      tutorId: meta.tutorId,
-      amount: meta.tutorShare,
-      txRef,
-      createdAt: new Date()
-    });
+      const txRef = data.tx_ref;
+      const transactionId = data.id;
 
-    batch.set(revenueRef, {
-      amount: meta.platformShare,
-      txRef,
-      createdAt: new Date()
-    });
+      // ============================
+      // 🔒 PREVENT DUPLICATES
+      // ============================
+      const txRefDoc = db.collection("transactions").doc(txRef);
 
-    batch.set(txRefDoc, {
-      status: "processed",
-      txRef,
-      createdAt: new Date()
-    });
+      const existing = await txRefDoc.get();
 
-    await batch.commit();
+      if (existing.exists) {
+        console.log("⚠️ Transaction already processed");
+        return res.sendStatus(200);
+      }
 
-    return res.sendStatus(200);
-  } catch (err) {
-    console.error("WEBHOOK ERROR:", err.message);
-    return res.sendStatus(500);
+      // ============================
+      // 🔍 VERIFY WITH FLUTTERWAVE
+      // ============================
+      const verifyRes = await axios.get(
+        `https://api.flutterwave.com/v3/transactions/${transactionId}/verify`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+          },
+        }
+      );
+
+      const transaction = verifyRes.data.data;
+
+      if (transaction.status !== "successful") {
+        console.log("❌ Verification failed");
+        return res.sendStatus(400);
+      }
+
+      const meta = transaction.meta;
+
+      if (!meta?.userId || !meta?.tutorialId) {
+        console.log("❌ Missing metadata");
+        return res.sendStatus(400);
+      }
+
+      // ============================
+      // 💾 SAVE PURCHASE
+      // ============================
+      const batch = db.batch();
+
+      const purchaseRef = db.collection("purchases").doc();
+
+      const earningsRef = db.collection("tutorEarnings").doc();
+
+      const revenueRef = db.collection("adminRevenue").doc();
+
+      batch.set(purchaseRef, {
+        userId: meta.userId,
+        tutorId: meta.tutorId,
+        tutorialId: meta.tutorialId,
+        amount: meta.amount,
+        txRef,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      batch.set(earningsRef, {
+        tutorId: meta.tutorId,
+        amount: meta.tutorShare,
+        txRef,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      batch.set(revenueRef, {
+        amount: meta.platformShare,
+        txRef,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      batch.set(txRefDoc, {
+        status: "processed",
+        txRef,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
+      console.log("✅ PURCHASE SAVED");
+
+      return res.sendStatus(200);
+    } catch (err) {
+      console.error("❌ WEBHOOK ERROR:", err);
+      return res.sendStatus(500);
+    }
   }
-});
+);
+
+app.use(express.json());
 
 // ============================
 // 💸 WITHDRAWAL (WALLET BASED)
