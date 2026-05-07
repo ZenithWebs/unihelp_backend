@@ -7,15 +7,13 @@ import admin from "firebase-admin";
 import crypto from "crypto";
 import aiRoutes from "./routes/ai.js";
 import { db } from "./firebase.js";
-import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+import nodemailer from "nodemailer";
 
 dotenv.config();
 // ============================
 // 🔥 FIREBASE ADMIN INIT
 // ============================
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+
 const app = express();
 app.use("/api/ai", aiRoutes);
 // ============================
@@ -27,6 +25,111 @@ app.use(cors({
 
 app.use(express.json());
 
+
+
+// ================= EMAIL TRANSPORTER =================
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// ================= CONTACT ROUTE =================
+app.post("/api/contact", async (req, res) => {
+  try {
+    const { name, email, subject, message } = req.body;
+
+    if (!name || !email || !subject || !message) {
+      return res.status(400).json({
+        message: "All fields are required",
+      });
+    }
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+
+      to: process.env.EMAIL_USER,
+
+      subject: `Contact Form - ${subject}`,
+
+      html: `
+        <h2>New Contact Message</h2>
+
+        <p><strong>Name:</strong> ${name}</p>
+
+        <p><strong>Email:</strong> ${email}</p>
+
+        <p><strong>Subject:</strong> ${subject}</p>
+
+        <p><strong>Message:</strong></p>
+
+        <p>${message}</p>
+      `,
+    });
+
+    res.json({
+      success: true,
+      message: "Message sent successfully",
+    });
+
+  } catch (err) {
+    console.log(err);
+
+    res.status(500).json({
+      message: "Failed to send message",
+    });
+  }
+});
+
+// ================= REPORT ROUTE =================
+app.post("/api/report", async (req, res) => {
+  try {
+    const { category, reportedUser, details } = req.body;
+
+    if (!category || !details) {
+      return res.status(400).json({
+        message: "Missing required fields",
+      });
+    }
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+
+      to: process.env.EMAIL_USER,
+
+      subject: `New Report - ${category}`,
+
+      html: `
+        <h2>New User Report</h2>
+
+        <p><strong>Category:</strong> ${category}</p>
+
+        <p><strong>Reported User:</strong> ${
+          reportedUser || "Not Provided"
+        }</p>
+
+        <p><strong>Details:</strong></p>
+
+        <p>${details}</p>
+      `,
+    });
+
+    res.json({
+      success: true,
+      message: "Report submitted",
+    });
+
+  } catch (err) {
+    console.log(err);
+
+    res.status(500).json({
+      message: "Failed to submit report",
+    });
+  }
+});
 // ============================
 // 🚦 RATE LIMITING
 // ============================
